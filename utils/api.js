@@ -1,4 +1,5 @@
 const axios = require("axios");
+const { prompt } = require("./chatbot-helper");
 require("dotenv").config();
 
 const fetchNewSearches = async (name) => {
@@ -10,7 +11,7 @@ const fetchNewSearches = async (name) => {
         messages: [
           {
             role: "user",
-            content: `Generate 5 funny and slightly edgy search queries that a celebrity like ${name} might make, based on their public persona.`
+            content: prompt(name)
           }
         ],
         max_tokens: 150
