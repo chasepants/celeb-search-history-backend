@@ -5,15 +5,7 @@ const { redis } = require("../utils/redis");
 const { fetchNewSearches } = require("../utils/api");
 const { sanitizeInput, verifyCaptcha } = require("../utils/validation");
 
-// Mock ioredis globally
-jest.mock("../utils/redis", () => ({
-  redis: {
-    get: jest.fn(),
-    set: jest.fn(),
-    incr: jest.fn(),
-    expire: jest.fn()
-  }
-}));
+jest.mock("../utils/redis");
 jest.mock("../utils/api");
 jest.mock("../utils/validation");
 
@@ -24,11 +16,23 @@ describe("GET /api/search-history", () => {
   beforeEach(() => {
     redis.get.mockReset();
     redis.set.mockReset();
-    redis.incr.mockReset();
-    redis.expire.mockReset();
+    redis.ttl.mockReset();
     fetchNewSearches.mockReset();
+    sanitizeInput.mockReset();
+    verifyCaptcha.mockReset();
+
+    // Default mocks
     sanitizeInput.mockImplementation(input => input);
     verifyCaptcha.mockResolvedValue(true);
+    fetchNewSearches.mockResolvedValue(
+      Array(5).fill().map((_, i) => ({
+        title: `New Search ${i}`,
+        timestamp: "2025-03-22",
+        device: "Desktop",
+        browser: "Chrome",
+        ip: "Location hidden"
+      }))
+    );
   });
 
   test("rejects invalid name", async () => {
@@ -38,24 +42,21 @@ describe("GET /api/search-history", () => {
     expect(response.body.message).toBe("Please provide a valid celebrity name.");
   });
 
-  test("returns cached searches", async () => {
+  test("returns cached searches when fresh", async () => {
     const cachedData = [{ title: "Cached Search", timestamp: "2025-03-22", device: "Desktop", browser: "Chrome", ip: "Location hidden" }];
     redis.get.mockResolvedValueOnce(JSON.stringify(cachedData));
-    redis.get.mockResolvedValueOnce("2");
+    redis.ttl.mockResolvedValueOnce(150); // TTL > 0, cache fresh
     const response = await request(app).get("/api/search-history?name=Brad%20Pitt");
     expect(response.status).toBe(200);
     expect(response.body.searches).toEqual(cachedData);
   });
 
   test("fetches new searches when cache empty", async () => {
-    const newSearches = [{ title: "New Search", timestamp: "2025-03-22", device: "Desktop", browser: "Chrome", ip: "Location hidden" }];
     redis.get.mockResolvedValueOnce(null);
-    redis.get.mockResolvedValueOnce("0");
-    fetchNewSearches.mockResolvedValue(newSearches);
     const response = await request(app).get("/api/search-history?name=Brad%20Pitt");
     expect(response.status).toBe(200);
-    expect(response.body.searches.length).toBe(25);
-    expect(response.body.searches[0].title).toBe("New Search");
+    expect(response.body.searches.length).toBe(5); // Single fetchNewSearches call
+    expect(response.body.searches[0].title).toMatch(/New Search/);
     expect(redis.set).toHaveBeenCalled();
   });
 });
